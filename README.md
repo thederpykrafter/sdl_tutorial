@@ -1,3 +1,3 @@
 # sdl_tutorial
 
-[tutorial link](https://youtu.be/tfc3vschDVw?si=iXKvf23owb8_rWKx)
+[tutorial playlist link](https://youtube.com/playlist?list=PLI3kBEQ3yd-CbQfRchF70BPLF9G1HEzhy&si=QIEX4jM5NJG0IWFk)
