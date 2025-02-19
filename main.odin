@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import "core:log"
+import "core:math/linalg"
 import sdl "vendor:sdl3"
 
 default_context: runtime.Context
@@ -35,8 +36,8 @@ main :: proc() {
 
 	ok = sdl.ClaimWindowForGPUDevice(gpu, window);assert(ok)
 
-	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX)
-	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT)
+	vert_shader := load_shader(gpu, vert_shader_code, .VERTEX, 1)
+	frag_shader := load_shader(gpu, frag_shader_code, .FRAGMENT, 0)
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(
 		gpu,
@@ -56,7 +57,30 @@ main :: proc() {
 	sdl.ReleaseGPUShader(gpu, vert_shader)
 	sdl.ReleaseGPUShader(gpu, frag_shader)
 
+	win_size: [2]i32
+	ok = sdl.GetWindowSize(window, &win_size.x, &win_size.y);assert(ok)
+
+	ROTATION_SPEED := linalg.to_radians(f32(90))
+	rotation := f32(0)
+
+	proj_mat := linalg.matrix4_perspective_f32(
+		linalg.to_radians(f32(70)),
+		f32(win_size.x) / f32(win_size.y),
+		0.0001,
+		1000,
+	)
+
+	UBO :: struct #max_field_align (16) {
+		mvp: matrix[4, 4]f32,
+	}
+
+	last_ticks := sdl.GetTicks()
+
 	main_loop: for {
+		new_ticks := sdl.GetTicks()
+		delta_time := f32(new_ticks - last_ticks) / 1000
+		last_ticks = new_ticks
+
 		// process events
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
@@ -83,9 +107,16 @@ main :: proc() {
 			nil,
 		);assert(ok)
 
+		rotation += ROTATION_SPEED * delta_time
+		model_mat :=
+			linalg.matrix4_translate_f32({0, 0, -5}) *
+			linalg.matrix4_rotate_f32(rotation, {0, 1, 0})
+
+		ubo := UBO {
+			mvp = proj_mat * model_mat,
+		}
+
 		if swapchain_tex != nil {
-			log.debug("Rendering")
-			//begin render pass
 			color_target := sdl.GPUColorTargetInfo {
 				texture     = swapchain_tex,
 				load_op     = .CLEAR,
@@ -94,17 +125,12 @@ main :: proc() {
 			}
 
 			render_pass := sdl.BeginGPURenderPass(cmd_buf, &color_target, 1, nil)
-
-			//draw stuff
-			//bind pipeline
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline)
-			//draw calls
+			sdl.PushGPUVertexUniformData(cmd_buf, 0, &ubo, size_of(ubo))
 			sdl.DrawGPUPrimitives(render_pass, 3, 1, 0, 0)
-
-			//end render pass
+			//vertex attributes
+			//uniform data
 			sdl.EndGPURenderPass(render_pass)
-		} else {
-			log.debug("Not rendering")
 		}
 
 		//submit command buffer
@@ -116,6 +142,7 @@ load_shader :: proc(
 	device: ^sdl.GPUDevice,
 	code: []u8,
 	stage: sdl.GPUShaderStage,
+	num_uniform_buffers: u32,
 ) -> ^sdl.GPUShader {
 	return sdl.CreateGPUShader(
 		device,
@@ -125,6 +152,7 @@ load_shader :: proc(
 			entrypoint = "main",
 			format = {.SPIRV},
 			stage = stage,
+			num_uniform_buffers = num_uniform_buffers,
 		},
 	)
 }
